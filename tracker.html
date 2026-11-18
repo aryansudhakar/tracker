@@ -56,14 +56,12 @@
     <div class="row"><span>Last update</span><b id="lastUpdate">—</b></div>
     <div class="row"><span>Accuracy</span><b id="accuracy">—</b></div>
     <button id="toggleBtn">Start Tracking</button>
-    <div class="hint">Keep this tab/app open and the screen on (or allow it in background) for continuous updates. View this phone's location from the Viewer page on any other device.</div>
+    <div class="hint">Keep this tab open and the screen on (or allow it in background) for continuous updates.</div>
   </div>
 
 <script>
-// ====== FIREBASE CONFIG — fill this in (see README) ======
-const FIREBASE_DB_URL = "https://YOUR-PROJECT-ID-default-rtdb.firebaseio.com";
-const DEVICE_PATH = "oppo-reno14";   // any unguessable string you pick, must match viewer.html
-// ===========================================================
+const FIREBASE_DB_URL = "https://tracker-app-14b27-default-rtdb.firebaseio.com";
+const DEVICE_PATH = "oppo-reno14";
 
 const dot = document.getElementById('dot');
 const statusEl = document.getElementById('status');
@@ -119,7 +117,6 @@ btn.addEventListener('click', () => {
   if(watchId === null) start(); else stop();
 });
 
-// auto-start on load
 start();
 </script>
 </body>
