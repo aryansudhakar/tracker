@@ -3,82 +3,121 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Tracker Viewer</title>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<title>My Tracker</title>
 <style>
-  :root{ --bg:#f5f6fa; --card:#ffffff; --text:#1c1e21; --sub:#6b7280; --border:#e5e7eb; }
+  :root{
+    --bg:#f5f6fa; --card:#ffffff; --text:#1c1e21; --sub:#6b7280;
+    --accent:#2563eb; --good:#16a34a; --bad:#dc2626; --border:#e5e7eb;
+  }
   @media (prefers-color-scheme: dark){
     :root{ --bg:#111317; --card:#1b1e24; --text:#f3f4f6; --sub:#9ca3af; --border:#2a2d34; }
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
-  body{ background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
-  #map{ position:fixed; inset:0; top:76px; }
-  .topbar{
-    position:fixed; top:0; left:0; right:0; z-index:1000;
-    padding:14px 18px; padding-top:calc(14px + env(safe-area-inset-top,0px));
-    background:var(--card); border-bottom:1px solid var(--border);
-    display:flex; justify-content:space-between; align-items:center;
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px;
+    padding-top:calc(24px + env(safe-area-inset-top,0px));
+    padding-bottom:calc(24px + env(safe-area-inset-bottom,0px));
   }
-  .topbar h1{ font-size:16px; margin:0; }
-  .meta{ font-size:12px; color:var(--sub); }
-  .badge{ font-size:11px; padding:4px 9px; border-radius:999px; background:#16a34a22; color:#16a34a; font-weight:600; }
-  .badge.stale{ background:#dc262622; color:#dc2626; }
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:20px;
+    padding:32px 28px; width:100%; max-width:380px; text-align:center;
+  }
+  .dot{
+    width:14px;height:14px;border-radius:50%;
+    background:var(--bad); display:inline-block; margin-right:8px;
+    transition:background .3s;
+  }
+  .dot.on{ background:var(--good); box-shadow:0 0 0 0 rgba(22,163,74,.5); animation:pulse 2s infinite; }
+  @keyframes pulse{
+    0%{box-shadow:0 0 0 0 rgba(22,163,74,.45);}
+    70%{box-shadow:0 0 0 10px rgba(22,163,74,0);}
+    100%{box-shadow:0 0 0 0 rgba(22,163,74,0);}
+  }
+  h1{font-size:19px;margin:0 0 4px;}
+  .status{font-size:15px;color:var(--sub);margin-bottom:22px;}
+  .row{display:flex;justify-content:space-between;font-size:13px;color:var(--sub);padding:8px 0;border-top:1px solid var(--border);}
+  .row b{color:var(--text);font-weight:600;}
+  button{
+    margin-top:20px; width:100%; padding:13px; border:none; border-radius:12px;
+    background:var(--accent); color:#fff; font-size:15px; font-weight:600; cursor:pointer;
+  }
+  button.stop{background:var(--bad);}
+  .hint{font-size:12px;color:var(--sub);margin-top:14px;line-height:1.5;}
 </style>
 </head>
 <body>
-  <div class="topbar">
-    <div>
-      <h1>Phone Location</h1>
-      <div class="meta" id="meta">Loading…</div>
-    </div>
-    <div class="badge" id="badge">—</div>
+  <div class="card">
+    <h1><span class="dot" id="dot"></span>My Tracker</h1>
+    <div class="status" id="status">Not started</div>
+    <div class="row"><span>Last update</span><b id="lastUpdate">—</b></div>
+    <div class="row"><span>Accuracy</span><b id="accuracy">—</b></div>
+    <button id="toggleBtn">Start Tracking</button>
+    <div class="hint">Keep this tab open and the screen on (or allow it in background) for continuous updates.</div>
   </div>
-  <div id="map"></div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-// ====== FIREBASE CONFIG — must match tracker.html ======
-const FIREBASE_DB_URL = "https://YOUR-PROJECT-ID-default-rtdb.firebaseio.com";
+const FIREBASE_DB_URL = "https://tracker-app-14b27-default-rtdb.firebaseio.com";
 const DEVICE_PATH = "oppo-reno14";
-// =========================================================
 
-const map = L.map('map').setView([0,0], 2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-  maxZoom: 19, attribution: '© OpenStreetMap'
-}).addTo(map);
+const dot = document.getElementById('dot');
+const statusEl = document.getElementById('status');
+const lastUpdateEl = document.getElementById('lastUpdate');
+const accuracyEl = document.getElementById('accuracy');
+const btn = document.getElementById('toggleBtn');
 
-let marker = null, circle = null, first = true;
-const metaEl = document.getElementById('meta');
-const badgeEl = document.getElementById('badge');
+let watchId = null;
 
-async function refresh(){
-  try{
-    const res = await fetch(`${FIREBASE_DB_URL}/${DEVICE_PATH}.json`);
-    const data = await res.json();
-    if(!data){ metaEl.textContent = 'No location reported yet'; return; }
-    const { lat, lng, accuracy, ts } = data;
-    const ageSec = (Date.now() - ts) / 1000;
-
-    if(!marker){
-      marker = L.marker([lat,lng]).addTo(map);
-      circle = L.circle([lat,lng], { radius: accuracy || 20, color:'#2563eb', fillOpacity:0.15 }).addTo(map);
-    } else {
-      marker.setLatLng([lat,lng]);
-      circle.setLatLng([lat,lng]).setRadius(accuracy || 20);
-    }
-    if(first){ map.setView([lat,lng], 16); first = false; }
-
-    metaEl.textContent = `Updated ${Math.round(ageSec)}s ago · ±${Math.round(accuracy||0)}m`;
-    if(ageSec < 60){ badgeEl.textContent = 'Live'; badgeEl.classList.remove('stale'); }
-    else { badgeEl.textContent = 'Stale'; badgeEl.classList.add('stale'); }
-  } catch(e){
-    metaEl.textContent = 'Could not reach server';
-  }
+function send(pos){
+  const { latitude, longitude, accuracy } = pos.coords;
+  const body = { lat: latitude, lng: longitude, accuracy, ts: Date.now() };
+  fetch(`${FIREBASE_DB_URL}/${DEVICE_PATH}.json`, {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  }).then(r => {
+    if(!r.ok) throw new Error('send failed');
+    dot.classList.add('on');
+    statusEl.textContent = 'Tracking — location sent';
+    lastUpdateEl.textContent = new Date().toLocaleTimeString();
+    accuracyEl.textContent = Math.round(accuracy) + ' m';
+  }).catch(() => {
+    statusEl.textContent = 'Network error — will retry';
+    dot.classList.remove('on');
+  });
 }
 
-refresh();
-setInterval(refresh, 8000);
+function start(){
+  if(!navigator.geolocation){
+    statusEl.textContent = 'Geolocation not supported';
+    return;
+  }
+  watchId = navigator.geolocation.watchPosition(send, (err) => {
+    statusEl.textContent = 'Location error: ' + err.message;
+    dot.classList.remove('on');
+  }, { enableHighAccuracy:true, maximumAge:5000, timeout:15000 });
+  btn.textContent = 'Stop Tracking';
+  btn.classList.add('stop');
+  statusEl.textContent = 'Starting…';
+}
+
+function stop(){
+  if(watchId !== null) navigator.geolocation.clearWatch(watchId);
+  watchId = null;
+  dot.classList.remove('on');
+  btn.textContent = 'Start Tracking';
+  btn.classList.remove('stop');
+  statusEl.textContent = 'Stopped';
+}
+
+btn.addEventListener('click', () => {
+  if(watchId === null) start(); else stop();
+});
+
+start();
 </script>
 </body>
 </html>
